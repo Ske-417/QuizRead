@@ -9,7 +9,19 @@ async function loadDefaultQuestions() {
   if(!Array.isArray(questions)) throw new Error("問題データの形式が正しくありません");
   return questions;
 }
+async function loadDefaultDictionary() {
+  try {
+    const response = await fetch("data/dictionary.json");
+    if (!response.ok) return {};
+    const dict = await response.json();
+    if (!dict || typeof dict !== "object" || Array.isArray(dict)) return {};
+    return Object.fromEntries(Object.entries(dict).filter(([k,v]) => k && typeof v === "string").map(([k,v]) => [k, hira(v)]));
+  } catch (e) {
+    return {};
+  }
+}
 const SAMPLE = await loadDefaultQuestions();
+const DEFAULT_DICT = await loadDefaultDictionary();
 const DEFAULT_SET = {rate:1.1,pitch:1,vol:1,mode:"hybrid",lead:true,turn:true,turnPause:320,post:1.03,fall:true,comma:false,paren:true,sound:true,engine:"open-jtalk",voice:""};
 const SAMPLE_VER = 7;
 const sampleQs = () => SAMPLE.map((x,i)=>({
@@ -24,17 +36,18 @@ const sampleQs = () => SAMPLE.map((x,i)=>({
 const LEVELS = {"":{name:"すべての難易度",ds:null}, C:{name:"Cモード",ds:["C"]}, B:{name:"Bモード",ds:["C","B"]}, A:{name:"Aモード",ds:["B","A"]}, S:{name:"Sモード",ds:["A","S"]}};
 const normD = v => { const d=String(v||"").trim().toUpperCase(); return /^[CBAS]$/.test(d)?d:""; };
 const inLevel = (q,lv=state.level) => { const L=LEVELS[lv]; return !L || !L.ds || L.ds.includes(q.d||""); };
-let state = {questions:sampleQs(), idx:0, dict:{}, set:{...DEFAULT_SET}, results:{}, sampleVer:SAMPLE_VER, genre:"", level:"", order:null};
+let state = {questions:sampleQs(), idx:0, dict:{...DEFAULT_DICT}, set:{...DEFAULT_SET}, results:{}, sampleVer:SAMPLE_VER, genre:"", level:"", order:null};
 try{
   const raw = localStorage.getItem(LS);
   if(raw){ const s = JSON.parse(raw); if(s && Array.isArray(s.questions) && s.questions.length){
     const ver = s.sampleVer||1;
     state = {...state, ...s, set:{...DEFAULT_SET, ...(s.set||{})}};
-    if(ver < SAMPLE_VER){ state.questions=sampleQs(); state.idx=0; state.order=null; state.dict={}; state.played={}; state.results={}; }
+    if(ver < SAMPLE_VER){ state.questions=sampleQs(); state.idx=0; state.order=null; state.dict={...DEFAULT_DICT}; state.played={}; state.results={}; }
     if(!(state.level in LEVELS)) state.level="";
     state.sampleVer=SAMPLE_VER;
   } }
 }catch(e){}
+state.dict = {...DEFAULT_DICT, ...(state.dict||{})};
 function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
 
 /* ---------- text helpers ---------- */
