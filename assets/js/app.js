@@ -10,7 +10,7 @@ async function loadDefaultQuestions() {
   return questions;
 }
 const SAMPLE = await loadDefaultQuestions();
-const DEFAULT_SET = {rate:1.1,pitch:1,vol:1,mode:"hybrid",lead:true,turn:true,turnPause:320,post:1.03,fall:true,comma:false,paren:true,sound:true,voice:""};
+const DEFAULT_SET = {rate:1.1,pitch:1,vol:1,mode:"hybrid",lead:true,turn:true,turnPause:320,post:1.03,fall:true,comma:false,paren:true,sound:true,engine:"open-jtalk",voice:""};
 const SAMPLE_VER = 4;
 const sampleQs = () => SAMPLE.map((x,i)=>({
   id:x.id||"s2_"+i,
@@ -358,7 +358,7 @@ function buildPlan(an){
     let m=0; const marks=[]; // cumulative mora/speak length per token
     let sp=0;
     for(const t of u.toks){ const w=spoken(t,S.mode); const mm=moraOf(w); marks.push({t, m0:m, m1:m+mm, c0:sp, c1:sp+w.length}); m+=mm; sp+=w.length; }
-    return {speak, role, rate:Math.min(2,rate), pitch:Math.min(2,pitch), pause, mora:Math.max(1,m), marks, start:u.toks[0].start, end:u.toks[u.toks.length-1].end};
+    return {speak, toks:u.toks, role, rate:Math.min(2,rate), pitch:Math.min(2,pitch), pause, mora:Math.max(1,m), marks, start:u.toks[0].start, end:u.toks[u.toks.length-1].end};
   }).filter(u=>u.speak.replace(/[、。？！\s]/g,"").length);
   return plan;
 }
@@ -383,9 +383,9 @@ function voiceAdvice(v){
 function loadVoices(){
   if(!("speechSynthesis" in window)){ setChip("chipVoice","warn","このブラウザは音声合成に対応していません"); return; }
   voices = speechSynthesis.getVoices().filter(v=>/^ja/i.test(v.lang)).sort((a,b)=>scoreVoice(b)-scoreVoice(a));
-  const sel=$("voiceSel"); sel.innerHTML="";
+  const sel=$("voiceSel"); sel.innerHTML='<option value="open-jtalk">Open JTalk（ローカル）</option><option value="browser">ブラウザ音声（互換）</option>';
   if(!voices.length){
-    sel.innerHTML='<option value="">日本語の音声が見つかりません</option>';
+    sel.innerHTML+='<option value="">日本語の音声が見つかりません</option>';
     setChip("chipVoice","warn","日本語の音声なし");
     $("voiceHint").textContent="Microsoft Edge の「Nanami (Natural)」、Chrome の「Google 日本語」、Mac の「Kyoko」などが使えます。OS の設定で日本語音声を追加してください。";
     return;
@@ -393,11 +393,26 @@ function loadVoices(){
   const groups=[["ニューラル音声（自然）",voices.filter(v=>/Natural|Neural/i.test(v.name))],["比較的自然な声",voices.filter(v=>!/Natural|Neural/i.test(v.name) && isNeural(v))],["標準の声",voices.filter(v=>!isNeural(v))]];
   for(const [label,list] of groups){ if(!list.length) continue; const g=document.createElement("optgroup"); g.label=label;
     for(const v of list){ const o=document.createElement("option"); o.value=v.voiceURI; o.textContent=v.name.replace(/^Microsoft /,"").replace(/ - Japanese \(Japan\)/,""); g.appendChild(o); } sel.appendChild(g); }
+  const g=document.createElement("optgroup"); g.label="ブラウザ音声（互換）";
+  for(const v of voices){ const o=document.createElement("option"); o.value=`browser:${v.voiceURI}`; o.textContent=v.name.replace(/^Microsoft /,"").replace(/ - Japanese \(Japan\)/,""); g.appendChild(o); }
+  sel.appendChild(g);
   voice = voices.find(v=>v.voiceURI===state.set.voice) || voices[0];
-  sel.value = voice.voiceURI;
+  sel.value = state.set.engine==="browser" && voice ? `browser:${voice.voiceURI}` : "open-jtalk";
   updateVoiceUI();
 }
 function updateVoiceUI(){
+  if(state.set.engine==="open-jtalk"){
+    setChip("chipVoice","busy","Open JTalk を確認中…");
+    $("voiceHint").textContent="ローカルサーバーの Open JTalk（mei など）を使用します。";
+    $("voiceWarn").hidden=true;
+    fetch("/api/status").then(r=>r.ok?r.json():Promise.reject(new Error("status"))).then(s=>{
+      const ok=!!s.available;
+      setChip("chipVoice",ok?"ok":"warn",ok?"Open JTalk":"Open JTalk 未設定");
+      $("voiceHint").textContent=ok?"Open JTalk の辞書と音声を検出しました。":"Open JTalk・辞書・HTS 音声を設定してください。未設定時はブラウザ音声へ切り替えられます。";
+      $("voiceWarn").hidden=ok;
+    }).catch(()=>{ setChip("chipVoice","warn","Open JTalk サーバーなし"); $("voiceHint").textContent="npm run serve で Open JTalk 対応サーバーを起動してください。"; $("voiceWarn").hidden=false; });
+    return;
+  }
   if(!voice) return;
   const good=isNeural(voice);
   setChip("chipVoice", good?"ok":"warn", voice.name.replace(/^Microsoft /,"").replace(/ - Japanese \(Japan\)/,"") + (good?"":"（旧型の声）"));
@@ -479,7 +494,8 @@ const soloMode = () => players().length===0;
 function eligible(p){ if(!p) return false; if(p.id==="solo") return !qs.lock.has("solo"); return p.status==="" && !p.sit && !qs.lock.has(p.id) && !(p.remote && p.online===false); }
 
 /* ---------- speech ---------- */
-function speakSeq(items, onDone){
+let currentAudio=null, speechController=null;
+function browserSpeakSeq(items, onDone){
   const id=++runId; let k=0, dead=false;
   try{ speechSynthesis.cancel(); }catch(e){}
   if(state.set.lead && items.lead){ items=[{speak:"問題", rate:state.set.rate, pitch:state.set.pitch, pause:520, mora:3}, ...items]; }
@@ -523,6 +539,37 @@ function speakSeq(items, onDone){
   };
   next();
 }
+function openJTalkText(u){ return u.toks ? u.toks.map(t=>t.r || spoken(t,"kana")).join("") : u.speak; }
+function speakSeq(items, onDone){
+  if(state.set.engine!=="open-jtalk"){ browserSpeakSeq(items,onDone); return; }
+  const id=++runId; let k=0;
+  try{ speechSynthesis.cancel(); }catch(e){}
+  if(state.set.lead && items.lead) items=[{speak:"問題",toks:[{r:"もんだい"}],rate:state.set.rate,pitch:state.set.pitch,pause:520,mora:3},...items];
+  const next=()=>{
+    if(id!==runId) return;
+    if(k>=items.length){ curU=null; onDone&&onDone(); return; }
+    const u=items[k++], rec={u,ix:k-1,t0:performance.now(),bChar:-1,fake:false};
+    curU=rec;
+    speechController=new AbortController();
+    fetch("/api/speak",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:openJTalkText(u),speed:Math.max(.5,Math.min(2,u.rate||1))}),signal:speechController.signal})
+      .then(r=>{if(!r.ok) throw new Error("Open JTalk API "+r.status); return r.blob();})
+      .then(blob=>{
+        if(id!==runId)return;
+        const audio=new Audio(URL.createObjectURL(blob)); currentAudio=audio; audio.volume=state.set.vol;
+        let finished=false;
+        const finish=failed=>{
+          if(finished||id!==runId)return; finished=true; clearTimeout(watch);
+          if(failed) speechFailed(failed);
+          URL.revokeObjectURL(audio.src); currentAudio=null; curU=null; setTimeout(next,u.pause||0);
+        };
+        const watch=setTimeout(()=>finish("再生タイムアウト"),Math.max(3000,(u.mora||1)*msPerMora/(u.rate||1)*2.5+3000));
+        audio.onended=()=>finish(false);
+        audio.onerror=()=>finish("Open JTalk");
+        audio.play().catch(()=>finish("再生"));
+      }).catch(e=>{ if(e.name==="AbortError"||id!==runId)return; speechFailed(e.message); curU=null; setTimeout(next,u.pause||0); });
+  };
+  next();
+}
 let speechWarned=0;
 function speechFailed(why){
   if(speechWarned===qs.ep) return; speechWarned=qs.ep;
@@ -554,10 +601,10 @@ function loop(){
     raf=requestAnimationFrame(loop);
   }
 }
-function stopSpeech(){ runId++; try{ speechSynthesis.cancel(); }catch(e){} cancelAnimationFrame(raf); curU=null; }
+function stopSpeech(){ runId++; speechController?.abort(); speechController=null; if(currentAudio){ currentAudio.pause(); URL.revokeObjectURL(currentAudio.src); currentAudio=null; } try{ speechSynthesis.cancel(); }catch(e){} cancelAnimationFrame(raf); curU=null; }
 function readFrom(offset, lead){
-  if(!("speechSynthesis" in window)){ toast("このブラウザでは読み上げができません"); }
-  if(!voices.length) loadVoices();
+  if(state.set.engine==="browser" && !("speechSynthesis" in window)){ toast("このブラウザでは読み上げができません"); }
+  if(state.set.engine==="browser" && !voices.length) loadVoices();
   const toks = offset>0 ? an.toks.filter(t=>t.end>offset) : an.toks;
   if(!toks.length){ onReadEnd(); return; }
   reveal = offset>0 ? toks[0].start : 0;
@@ -927,7 +974,7 @@ $("edReset").onclick=()=>{ const t=an.toks[selTok]; if(!t) return; if(Q().fix) d
 $("edSay").onclick=()=>{ const v=edVal(); if(v) speakSeq([{speak:v, rate:state.set.rate, pitch:state.set.pitch, pause:0, mora:1}], null); };
 $("edRead").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("edThis").click(); } });
 $("bookPlay").onclick=()=>{ if(ph!=="idle"&&ph!=="revealed"){ toast("対戦中の問題は対戦画面で読み上げてください"); return; } const items=plan.map(x=>({...x,marks:null,end:null})); items.lead=true; speakSeq(items,null); };
-$("bookStop").onclick=()=>{ runId++; try{ speechSynthesis.cancel(); }catch(e){} };
+$("bookStop").onclick=()=>stopSpeech();
 
 /* ---------- views ---------- */
 function setView(v){
@@ -1151,7 +1198,18 @@ bindRange("sTurnPause","turnPause","vTurnPause",v=>(v/1000).toFixed(2)+"秒"); b
 function bindChk(id,key,re){ const el=$(id); el.checked=!!state.set[key]; el.addEventListener("change",()=>{ state.set[key]=el.checked; save(); if(re) refresh(); else { plan=buildPlan(an); renderPlan(); } }); }
 bindChk("cLead","lead"); bindChk("cTurn","turn"); bindChk("cFall","fall"); bindChk("cComma","comma"); bindChk("cParen","paren",true); bindChk("cSound","sound");
 $("modeSel").value=state.set.mode; $("modeSel").onchange=()=>{ state.set.mode=$("modeSel").value; save(); plan=buildPlan(an); renderPlan(); };
-$("voiceSel").onchange=()=>{ voice=voices.find(v=>v.voiceURI===$("voiceSel").value)||voice; state.set.voice=voice?voice.voiceURI:""; save(); updateVoiceUI(); };
+$("voiceSel").onchange=()=>{
+  const value=$("voiceSel").value;
+  if(value==="open-jtalk"){ state.set.engine="open-jtalk"; }
+  else if(value==="browser"){
+    state.set.engine="browser";
+  } else if(value.startsWith("browser:")){
+    state.set.engine="browser";
+    state.set.voice=value.slice("browser:".length);
+    voice=voices.find(v=>v.voiceURI===state.set.voice)||voice;
+  }
+  save(); updateVoiceUI();
+};
 $("voiceTry").onclick=()=>{ const a=analyze("日本で一番高い山は富士山ですが、二番目に高い山は何でしょう？",{}); const p=buildPlan(a); speakSeq(p.map(x=>({...x,marks:null,end:null})), null); };
 
 /* ---------- smartphone buzzers (room) ---------- */

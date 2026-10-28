@@ -29,7 +29,7 @@
       <button class="btn small hostonly" id="joinBtn">スマホを早押しボタンにする</button>
     </div>
   </header>
-  <div class="warnbox" id="voiceWarn" hidden>いま使える日本語の声は旧型で、機械的に聞こえやすいものです。<b>Microsoft Edge</b> でこのページを開くと、人の声に近いニューラル音声（Nanami・Keita など）で読み上げられます。Chrome では「Google 日本語」を選んでください。</div>
+  <div class="warnbox" id="voiceWarn" hidden>Open JTalk が利用できないため、ブラウザの音声で読み上げています。<code>npm run serve</code> で起動し、Open JTalk と音声（mei など）を設定してください。</div>
 
   <!-- ===== 対戦 ===== -->
   <section id="viewGame" class="grid">
@@ -218,8 +218,8 @@
     <div class="card section" style="max-width:720px">
       <h2>音声と読み方</h2>
       <div class="field">
-        <label class="lbl" for="voiceSel">声</label>
-        <div class="row"><select id="voiceSel" style="flex:1;min-width:0"></select><button class="btn" id="voiceTry">試聴</button></div>
+        <label class="lbl" for="voiceSel">音声エンジン</label>
+        <div class="row"><select id="voiceSel" style="flex:1;min-width:0"><option value="open-jtalk">Open JTalk（ローカル）</option><option value="browser">ブラウザ音声（互換）</option></select><button class="btn" id="voiceTry">試聴</button></div>
         <span class="hint" id="voiceHint"></span>
       </div>
       <div class="range"><span class="l">速さ</span><span class="v" id="vRate"></span><input type="range" id="sRate" min="0.6" max="1.8" step="0.05"></div>

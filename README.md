@@ -19,11 +19,22 @@
 
 ## 使い方
 
-GitHub Pages で公開するか、ローカルでは次のコマンドで簡易サーバーを起動して `http://localhost:8000` を開きます。
+GitHub Pages ではブラウザ音声のみ、ローカルでは次のコマンドで Open JTalk 対応サーバーを起動して `http://localhost:8000` を開きます。
 
 ```sh
 npm run serve
 ```
+
+Open JTalk が PATH にあり、辞書と HTS 音声が標準的な場所にある場合は自動検出します。場所が異なる場合は次の環境変数を設定してください。
+
+```sh
+OPEN_JTALK_BIN=/path/to/open_jtalk \
+OPEN_JTALK_DIC=/path/to/open_jtalk/dic \
+OPEN_JTALK_VOICE=/path/to/mei_normal.htsvoice \
+npm run serve
+```
+
+Open JTalk が見つからない場合は設定画面から「ブラウザ音声（互換）」を選べます。辞書の登録（問題単位・全問題共通）で確定したひらがなは、Open JTalk に送る本文にもそのまま反映されます。
 
 ブラウザの制約により、`index.html` を `file://` で直接開く方法には対応していません。声は **Microsoft Edge の Natural 音声（Nanami など）** が最も自然です。Chrome なら「Google 日本語」を選んでください。
 
