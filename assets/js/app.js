@@ -306,7 +306,7 @@ function analyze(text, qfix){
 /* ---------- spoken form & utterance plan ---------- */
 function spoken(t, mode){
   if(t.src!=="auto" && t.r) return t.r;
-  if(t.s==="・") return "、";
+  if(t.s==="・") return " ";
   if(!KANJI.test(t.s)) return t.s;
   if(!t.r) return t.s;
   if(mode==="kana" || (t.flag && t.flag!=="固有名詞")) return t.r;
@@ -352,7 +352,7 @@ function buildPlan(an){
     let rate=S.rate, pitch=S.pitch, pause=0;
     if(role==="turn"){ rate*=0.97; pause=S.turnPause; }
     else if(role==="post"){ rate*=S.post; }
-    if(u.kind==="comma") pause=140; else if(u.kind==="end" && !isLast) pause=260;
+    if(u.kind==="comma") pause=80; else if(u.kind==="end" && !isLast) pause=260;
     let m=0; const marks=[]; // cumulative mora/speak length per token
     let sp=0;
     for(const t of u.toks){ const w=spoken(t,S.mode); const mm=moraOf(w); marks.push({t, m0:m, m1:m+mm, c0:sp, c1:sp+w.length}); m+=mm; sp+=w.length; }
