@@ -286,7 +286,7 @@ function analyze(text, qfix){
         const nr = nx && nx.src==="auto" && CNT[nx.s] ? nanCounter(nx.s) : null;
         if(nr){ t.s+=nx.s; t.r=nr; t.src="rule"; toks.splice(i+1,1); continue; }
         if(nx && nx.s==="色"){ t.r="なに"; nx.r="いろ"; nx.src="rule"; }
-        else if(nx && (/^(で|だ|と|の|ど|ね|な|日|年|月|時|回|人|本|度|番|曜|階|個|歳|枚|台|分|秒|点|倍|割|万|千|百|十|音|路|桁|鍵|か国|ヶ国|カ国|パーセント|グラム|キロ|メートル|角|乗|種類)/.test(nx.s) || CNT[nx.s] || nx.pos1==="接尾" || nx.pos1==="数")) t.r="なん";
+        else if(nx && (/^(で|だ|と|の|ど|ね|な|日|年|月|時|回|人|本|度|番|曜|階|個|歳|枚|台|分|秒|点|倍|割|万|千|百|十|音|路|桁|鍵|か国|ヶ国|カ国|パーセント|グラム|キロ|メートル|角|乗|種類)/.test(nx.s) || /^でしょ/.test(nx.s) || CNT[nx.s] || nx.pos1==="接尾" || nx.pos1==="数")) t.r="なん";
         else t.r="なに";
         t.src="rule";
       }
