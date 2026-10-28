@@ -2,7 +2,7 @@ import fs from "node:fs";
 
 const dataUrl = new URL("../data/questions.json", import.meta.url);
 const questions = JSON.parse(fs.readFileSync(dataUrl, "utf8"));
-const requiredFields = ["id", "question", "answer"];
+const requiredFields = ["id", "question", "answer", "genre"];
 const errors = [];
 const seen = new Map();
 const seenIds = new Map();

@@ -11,7 +11,7 @@ async function loadDefaultQuestions() {
 }
 const SAMPLE = await loadDefaultQuestions();
 const DEFAULT_SET = {rate:1.1,pitch:1,vol:1,mode:"hybrid",lead:true,turn:true,turnPause:320,post:1.03,fall:true,comma:false,paren:true,sound:true,engine:"open-jtalk",voice:""};
-const SAMPLE_VER = 5;
+const SAMPLE_VER = 7;
 const sampleQs = () => SAMPLE.map((x,i)=>({
   id:x.id||"s2_"+i,
   q:x.question,
@@ -30,7 +30,7 @@ try{
   if(raw){ const s = JSON.parse(raw); if(s && Array.isArray(s.questions) && s.questions.length){
     const ver = s.sampleVer||1;
     state = {...state, ...s, set:{...DEFAULT_SET, ...(s.set||{})}};
-    if(ver < SAMPLE_VER){ state.questions=[]; state.idx=0; state.order=null; state.dict={}; state.played={}; state.results={}; }
+    if(ver < SAMPLE_VER){ state.questions=sampleQs(); state.idx=0; state.order=null; state.dict={}; state.played={}; state.results={}; }
     if(!(state.level in LEVELS)) state.level="";
     state.sampleVer=SAMPLE_VER;
   } }
@@ -1187,7 +1187,7 @@ $("importFile").addEventListener("change",async()=>{
   const files=[...$("importFile").files]; $("importFile").value="";
   for(const f of files){ try{ importAppend(await f.text()); }catch(e){ toast("ファイルを読めませんでした"); } }
 });
-const exportData=()=>JSON.stringify(state.questions.map(q=>({id:q.id,question:q.q,answer:q.a})), null, 1);
+const exportData=()=>JSON.stringify(state.questions.map(q=>({id:q.id,question:q.q,answer:q.a,genre:q.g||"ノンジャンル"})), null, 1);
 $("exportBtn").onclick=()=>{
   const data=exportData();
   if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(data).then(()=>toast("JSON をコピーしました"), ()=>{ $("bulk").value=data; $("bulk").select(); toast("下の欄を選択しました。コピーしてください"); });
