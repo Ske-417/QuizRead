@@ -6,12 +6,12 @@ async function loadDefaultQuestions() {
   const response = await fetch("data/questions.json");
   if (!response.ok) throw new Error(`問題データを読み込めませんでした (${response.status})`);
   const questions = await response.json();
-  if (!Array.isArray(questions) || questions.length === 0) throw new Error("問題データが空です");
+  if(!Array.isArray(questions)) throw new Error("問題データの形式が正しくありません");
   return questions;
 }
 const SAMPLE = await loadDefaultQuestions();
 const DEFAULT_SET = {rate:1.1,pitch:1,vol:1,mode:"hybrid",lead:true,turn:true,turnPause:320,post:1.03,fall:true,comma:false,paren:true,sound:true,engine:"open-jtalk",voice:""};
-const SAMPLE_VER = 4;
+const SAMPLE_VER = 5;
 const sampleQs = () => SAMPLE.map((x,i)=>({
   id:x.id||"s2_"+i,
   q:x.question,
@@ -30,9 +30,7 @@ try{
   if(raw){ const s = JSON.parse(raw); if(s && Array.isArray(s.questions) && s.questions.length){
     const ver = s.sampleVer||1;
     state = {...state, ...s, set:{...DEFAULT_SET, ...(s.set||{})}};
-    if(ver < 2){ const mine=s.questions.filter(q=>!/^s\d+$/.test(q.id)); state.questions = [...sampleQs(), ...mine.map(q=>({...q, g:q.g||"自作"}))]; state.idx=0; state.order=null; }
-    else if(ver < SAMPLE_VER){ const have=new Set(state.questions.map(q=>q.id)); const add=sampleQs().filter(q=>!have.has(q.id)); state.questions=[...state.questions, ...add]; state.order=null; }
-    if(ver < 4){ const sd=new Map(sampleQs().map(q=>[q.id,q.d])); state.questions.forEach(q=>{ if(!q.d && sd.has(q.id)) q.d=sd.get(q.id); }); }
+    if(ver < SAMPLE_VER){ state.questions=[]; state.idx=0; state.order=null; state.dict={}; state.played={}; state.results={}; }
     if(!(state.level in LEVELS)) state.level="";
     state.sampleVer=SAMPLE_VER;
   } }
@@ -392,7 +390,7 @@ function loadVoices(){
   }
   const groups=[["ニューラル音声（自然）",voices.filter(v=>/Natural|Neural/i.test(v.name))],["比較的自然な声",voices.filter(v=>!/Natural|Neural/i.test(v.name) && isNeural(v))],["標準の声",voices.filter(v=>!isNeural(v))]];
   for(const [label,list] of groups){ if(!list.length) continue; const g=document.createElement("optgroup"); g.label=label;
-    for(const v of list){ const o=document.createElement("option"); o.value=v.voiceURI; o.textContent=v.name.replace(/^Microsoft /,"").replace(/ - Japanese \(Japan\)/,""); g.appendChild(o); } sel.appendChild(g); }
+    for(const v of list){ const o=document.createElement("option"); o.value=`browser:${v.voiceURI}`; o.textContent=v.name.replace(/^Microsoft /,"").replace(/ - Japanese \(Japan\)/,""); g.appendChild(o); } sel.appendChild(g); }
   const g=document.createElement("optgroup"); g.label="ブラウザ音声（互換）";
   for(const v of voices){ const o=document.createElement("option"); o.value=`browser:${v.voiceURI}`; o.textContent=v.name.replace(/^Microsoft /,"").replace(/ - Japanese \(Japan\)/,""); g.appendChild(o); }
   sel.appendChild(g);
@@ -404,6 +402,7 @@ function updateVoiceUI(){
   if(state.set.engine==="open-jtalk"){
     setChip("chipVoice","busy","Open JTalk を確認中…");
     $("voiceHint").textContent="ローカルサーバーの Open JTalk（mei など）を使用します。";
+    $("voiceWarn").textContent="Open JTalk が利用できないため、ブラウザの音声で読み上げています。npm run serve で起動し、Open JTalk と音声（mei など）を設定してください。";
     $("voiceWarn").hidden=true;
     fetch("/api/status").then(r=>r.ok?r.json():Promise.reject(new Error("status"))).then(s=>{
       const ok=!!s.available;
@@ -417,6 +416,7 @@ function updateVoiceUI(){
   const good=isNeural(voice);
   setChip("chipVoice", good?"ok":"warn", voice.name.replace(/^Microsoft /,"").replace(/ - Japanese \(Japan\)/,"") + (good?"":"（旧型の声）"));
   $("voiceHint").textContent = voiceAdvice(voice);
+  $("voiceWarn").textContent = "ブラウザの音声合成を使用しています。より安定した読み上げには Open JTalk（ローカル）を選択してください。";
   $("voiceWarn").hidden = good;
 }
 if("speechSynthesis" in window){ loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; setTimeout(loadVoices, 600); }
@@ -489,13 +489,20 @@ let qs = null;
 function newQS(){ return {ep:(qs?qs.ep:0)+1, open:false, first:null, order:[], lock:new Set(), marks:[], buzzAt:-1, events:[], started:false}; }
 qs = newQS();
 let banner = null, tmr = null, undoStack = [], listening = null;
-const Q = () => state.questions[state.idx];
+const blankQuestion = () => ({id:"", q:"", a:"", g:"自作", d:"", fix:{}});
+let draft = blankQuestion();
+const Q = () => state.questions[state.idx] || draft;
 const soloMode = () => players().length===0;
 function eligible(p){ if(!p) return false; if(p.id==="solo") return !qs.lock.has("solo"); return p.status==="" && !p.sit && !qs.lock.has(p.id) && !(p.remote && p.online===false); }
 
 /* ---------- speech ---------- */
 let currentAudio=null, speechController=null;
 function browserSpeakSeq(items, onDone){
+  if(!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance!=="function"){
+    toast("このブラウザではブラウザ音声を利用できません。Open JTalkを選択してください");
+    onDone && onDone();
+    return;
+  }
   const id=++runId; let k=0, dead=false;
   try{ speechSynthesis.cancel(); }catch(e){}
   if(state.set.lead && items.lead){ items=[{speak:"問題", rate:state.set.rate, pitch:state.set.pitch, pause:520, mora:3}, ...items]; }
@@ -1091,7 +1098,12 @@ const onEdit=()=>{ clearTimeout(edTimer); edTimer=setTimeout(()=>{ Q().q=$("edQ"
   const items=document.querySelectorAll("#qlist li button[aria-current='true'] .t"); if(items[0]) items[0].textContent=plainQ(Q()); },250); };
 $("edD").onchange=()=>{ Q().d=normD($("edD").value); save(); renderList(); renderStage(); };
 $("edQ").addEventListener("input",onEdit); $("edA").addEventListener("input",onEdit); $("edG").addEventListener("change",()=>{ onEdit(); setTimeout(renderList,300); });
-$("qAdd").onclick=()=>{ state.questions.splice(state.idx+1,0,{id:"q"+Date.now(),q:"",a:"",g:"自作",d:"",fix:{}}); state.order=null; state.genre=""; state.level=""; go(state.idx+1); $("edQ").focus(); };
+$("qAdd").onclick=()=>{
+  const q=Q();
+  if(!q.q.trim() && !q.a.trim()){ toast("問題文と答えを入力してください"); $("edQ").focus(); return; }
+  const item={...q,id:q.id||"q"+Date.now(),q:q.q.trim(),a:q.a.trim(),g:q.g||"自作",d:q.d||"",fix:q.fix||{}};
+  state.questions.splice(state.idx+1,0,item); draft=blankQuestion(); state.order=null; state.genre=""; state.level=""; go(state.idx+1); $("edQ").focus();
+};
 $("qDel").onclick=()=>{ if(state.questions.length<=1){ toast("最後の1問は削除できません"); return; } state.questions.splice(state.idx,1); state.order=null; go(Math.min(state.idx,state.questions.length-1)); toast("削除しました"); };
 $("useQ").onclick=()=>{ go(state.idx); setView("game"); };
 function applyFilter(){
@@ -1175,7 +1187,7 @@ $("importFile").addEventListener("change",async()=>{
   const files=[...$("importFile").files]; $("importFile").value="";
   for(const f of files){ try{ importAppend(await f.text()); }catch(e){ toast("ファイルを読めませんでした"); } }
 });
-const exportData=()=>JSON.stringify({app:"QuizRead", version:1, questions:state.questions.map(q=>({id:q.id,g:q.g||"自作",...(q.d?{d:q.d}:{}),q:q.q,a:q.a,...(q.fix&&Object.keys(q.fix).length?{fix:q.fix}:{})})), dict:state.dict}, null, 1);
+const exportData=()=>JSON.stringify(state.questions.map(q=>({id:q.id,question:q.q,answer:q.a})), null, 1);
 $("exportBtn").onclick=()=>{
   const data=exportData();
   if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(data).then(()=>toast("JSON をコピーしました"), ()=>{ $("bulk").value=data; $("bulk").select(); toast("下の欄を選択しました。コピーしてください"); });
@@ -1203,6 +1215,7 @@ $("voiceSel").onchange=()=>{
   if(value==="open-jtalk"){ state.set.engine="open-jtalk"; }
   else if(value==="browser"){
     state.set.engine="browser";
+    if(!voice) voice=voices[0]||null;
   } else if(value.startsWith("browser:")){
     state.set.engine="browser";
     state.set.voice=value.slice("browser:".length);

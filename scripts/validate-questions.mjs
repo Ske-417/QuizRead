@@ -2,8 +2,7 @@ import fs from "node:fs";
 
 const dataUrl = new URL("../data/questions.json", import.meta.url);
 const questions = JSON.parse(fs.readFileSync(dataUrl, "utf8"));
-const allowedDifficulties = new Set(["C", "B", "A", "S"]);
-const requiredFields = ["id", "genre", "difficulty", "question", "answer"];
+const requiredFields = ["id", "question", "answer"];
 const errors = [];
 const seen = new Map();
 const seenIds = new Map();
@@ -18,10 +17,6 @@ if (!Array.isArray(questions)) {
         errors.push(`${label}: ${field} は空でない文字列にしてください`);
       }
     }
-    if (!allowedDifficulties.has(question.difficulty)) {
-      errors.push(`${label}: difficulty は C/B/A/S のいずれかにしてください`);
-    }
-
     if (seenIds.has(question.id)) {
       errors.push(`${label}: ${seenIds.get(question.id)}問目と id が重複しています`);
     } else {
