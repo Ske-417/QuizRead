@@ -11,7 +11,7 @@ async function loadDefaultQuestions() {
 }
 async function loadDefaultDictionary() {
   try {
-    const response = await fetch("data/dictionary.json?v=20261029-3");
+    const response = await fetch("data/dictionary.json?v=20261029-4");
     if (!response.ok) return {};
     const dict = await response.json();
     if (!dict || typeof dict !== "object" || Array.isArray(dict)) return {};
@@ -37,7 +37,7 @@ const sampleQs = () => SAMPLE.map((x,i)=>({
 const LEVELS = {"":{name:"すべての難易度",ds:null}, C:{name:"Cモード",ds:["C"]}, B:{name:"Bモード",ds:["C","B"]}, A:{name:"Aモード",ds:["B","A"]}, S:{name:"Sモード",ds:["A","S"]}};
 const normD = v => { const d=String(v||"").trim().toUpperCase(); return /^[CBAS]$/.test(d)?d:""; };
 const inLevel = (q,lv=state.level) => { const L=LEVELS[lv]; return !L || !L.ds || L.ds.includes(q.d||""); };
-let state = {questions:sampleQs(), idx:0, dict:{...DEFAULT_DICT}, set:{...DEFAULT_SET}, results:{}, sampleVer:SAMPLE_VER, genre:"", level:"", order:null};
+let state = {questions:sampleQs(), idx:0, dict:{}, set:{...DEFAULT_SET}, results:{}, sampleVer:SAMPLE_VER, genre:"", level:"", order:null};
 try{
   const raw = localStorage.getItem(LS);
   if(raw){ const s = JSON.parse(raw); if(s && Array.isArray(s.questions) && s.questions.length){
@@ -48,7 +48,12 @@ try{
     state.sampleVer=SAMPLE_VER;
   } }
 }catch(e){}
-state.dict = {...DEFAULT_DICT, ...(state.dict||{})};
+// Old versions saved the built-in dictionary together with user entries.
+// Keep only genuine user additions/overrides so large built-in phrases can be
+// matched independently while user corrections still retain top priority.
+const legacyDict=state.userDict&&typeof state.userDict==="object" ? state.userDict : (state.dict||{});
+state.dict=Object.fromEntries(Object.entries(legacyDict).filter(([word,reading])=>!(word in DEFAULT_DICT)||DEFAULT_DICT[word]!==reading));
+state.userDict=state.dict;
 state.questions = state.questions.filter(q=>!REMOVED_QUESTION_IDS.has(String(q.id)));
 if(!state.questions.length) state.questions=sampleQs();
 function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
@@ -243,32 +248,17 @@ function parseRuby(text, paren){
   if(last<text.length) out.push({t:"txt", s:text.slice(last)});
   return out;
 }
-function applyDict(pieces, map, src){
-  const keys = Object.keys(map||{}).filter(Boolean).sort((a,b)=>b.length-a.length);
-  if(!keys.length) return pieces;
-  const out=[];
-  for(const p of pieces){
-    if(p.t!=="txt"){ out.push(p); continue; }
-    let buf="", i=0; const s=p.s;
-    while(i<s.length){
-      const k = keys.find(k=>s.startsWith(k,i));
-      if(k){ if(buf){out.push({t:"txt",s:buf}); buf="";} out.push({t:"fix",s:k,r:hira(map[k]),src}); i+=k.length; }
-      else { buf+=s[i]; i++; }
-    }
-    if(buf) out.push({t:"txt",s:buf});
-  }
-  return out;
-}
 const isNumTok = t => t.src===undefined && /^[0-9〇一二三四五六七八九十百千万億兆]+$/.test(t.s) && (t.pos1==="数" || /^[0-9]+$/.test(t.s));
 
 function analyze(text, qfix){
   const S = state.set;
   let pieces = parseRuby(normalize(text), S.paren);
-  // Explicit fixes win over dictionaries; built-in rules are only a fallback.
-  pieces = applyDict(pieces, qfix, "q");
-  pieces = applyDict(pieces, READING_RULES.phrases, "context");
-  pieces = applyDict(pieces, state.dict, "dict");
-  pieces = applyDict(pieces, READING_OVERRIDES, "rule");
+  // Compare every dictionary layer at once. Long compounds beat short words;
+  // for the same surface, per-question/user entries keep priority.
+  pieces = READING_RULES.applyLongest(pieces,[
+    {map:qfix,src:"q"},{map:READING_RULES.phrases,src:"context"},{map:state.dict,src:"dict"},
+    {map:DEFAULT_DICT,src:"core"},{map:READING_OVERRIDES,src:"rule"}
+  ]).map(piece=>piece.t==="fix"?{...piece,r:hira(piece.r)}:piece);
   let raw = [];
   for(const p of pieces){
     if(p.t==="fix") raw.push({s:p.s, r:p.r, src:p.src});
@@ -975,7 +965,7 @@ function renderToks(){
     const needs = KANJI.test(t.s) || t.src==="num" || t.src==="ruby" || t.src==="dict" || t.src==="q";
     b.className="tok";
     if(!needs){ b.classList.add("plain"); b.tabIndex=-1; }
-    else if(t.src==="ruby"||t.src==="dict"||t.src==="q"||t.src==="context"||t.src==="rule") b.classList.add("fixed");
+    else if(t.src==="ruby"||t.src==="dict"||t.src==="core"||t.src==="q"||t.src==="context"||t.src==="rule") b.classList.add("fixed");
     else if(t.src==="num") b.classList.add("num");
     else if(t.flag) b.classList.add("flag");
     else b.classList.add("k");
@@ -1041,7 +1031,7 @@ function openEditor(i){
   $("editor").hidden=false; $("edWord").textContent=t.s; $("edRead").value=t.r||"";
   $("edNote").textContent = t.flag ? `要確認（${t.flag}）。文脈に合う読みか確かめてください。` :
     t.src==="num" ? "数と助数詞の組み合わせから読みを決めています。" : (t.src==="rule"||t.src==="context") ? "前後の文脈と文法ルールで読みを決めています。" :
-    t.src==="q" ? "この問題だけの読みが指定されています。" : t.src==="dict" ? "辞書の読みを使っています。" : t.src==="ruby" ? "問題文のルビ指定を使っています。" : "形態素解析による自動判定です。";
+    t.src==="q" ? "この問題だけの読みが指定されています。" : t.src==="dict" ? "ユーザー辞書の読みを使っています。" : t.src==="core" ? "内蔵の複合語辞書を使っています。" : t.src==="ruby" ? "問題文のルビ指定を使っています。" : "形態素解析による自動判定です。";
   $("edReset").hidden = !(t.src==="q"||t.src==="dict");
   renderToks(); $("edRead").focus(); $("edRead").select();
 }

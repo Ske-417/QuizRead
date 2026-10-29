@@ -11,6 +11,30 @@
 
   root.QuizReadingRules=Object.freeze({
     phrases:Object.freeze(phrases),
+    applyLongest(pieces,layers){
+      const entries=[], seen=new Set();
+      layers.forEach(({map,src},priority)=>{
+        for(const [surface,reading] of Object.entries(map||{})){
+          if(!surface||seen.has(surface)||typeof reading!=="string") continue;
+          seen.add(surface); entries.push({surface,reading,src,priority});
+        }
+      });
+      entries.sort((a,b)=>b.surface.length-a.surface.length||a.priority-b.priority);
+      const out=[];
+      for(const piece of pieces){
+        if(piece.t!=="txt"){ out.push(piece); continue; }
+        let buffer="", offset=0;
+        while(offset<piece.s.length){
+          const hit=entries.find(entry=>piece.s.startsWith(entry.surface,offset));
+          if(hit){
+            if(buffer){ out.push({t:"txt",s:buffer}); buffer=""; }
+            out.push({t:"fix",s:hit.surface,r:hit.reading,src:hit.src}); offset+=hit.surface.length;
+          }else buffer+=piece.s[offset++];
+        }
+        if(buffer) out.push({t:"txt",s:buffer});
+      }
+      return out;
+    },
     invariant(surface){
       if(surface==="米") return "こめ";
       if(/^何(?:でしょう|ですか|だろう|である)/.test(surface)) return surface.replace(/^何/,"なん");

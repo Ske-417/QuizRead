@@ -22,6 +22,17 @@ assert.equal(rules.questionWord("現象"),"なに");
 assert.equal(rules.questionWord("コーヒー"),"なに");
 assert.equal(rules.questionWord("色"),"なに");
 assert.equal(rules.phrases["何でしょう"],"なんでしょう");
+const compound=rules.applyLongest([{t:"txt",s:"日本語と日本書紀"}],[
+  {map:{"日本":"にほんかたり"},src:"dict"},
+  {map:{"日本語":"にほんご","日本書紀":"にほんしょき"},src:"core"}
+]);
+assert.deepEqual(compound.map(piece=>[piece.s,piece.r||null]),[
+  ["日本語","にほんご"],["と",null],["日本書紀","にほんしょき"]
+]);
+const sameSurface=rules.applyLongest([{t:"txt",s:"日本語"}],[
+  {map:{"日本語":"ユーザー"},src:"dict"},{map:{"日本語":"内蔵"},src:"core"}
+]);
+assert.equal(sameSurface[0].r,"ユーザー","同じ表記ではユーザー辞書を優先");
 
 const tokenizer=await globalThis.QuizTokenizer.build("dict/");
 const tokens=tokenizer.tokenize("小麦・米・トウモロコシは何科の植物でしょう？");
@@ -38,6 +49,17 @@ for(const item of standardEndings) assert.ok(rules.phrases["何でしょう"],it
 
 const dictionary=JSON.parse(fs.readFileSync("data/dictionary.json","utf8"));
 const dictionaryKeys=Object.keys(dictionary).sort((a,b)=>b.length-a.length);
+const historicalReadings={
+  "公卿":"くぎょう","文武天皇":"もんむてんのう","元明天皇":"げんめいてんのう",
+  "元正天皇":"げんしょうてんのう","日本書紀":"にほんしょき"
+};
+const historyQuestion=questions.find(item=>String(item.id)==="15702").question;
+for(const [surface,reading] of Object.entries(historicalReadings)){
+  assert.equal(dictionary[surface],reading,`${surface} の読み`);
+  const offset=historyQuestion.indexOf(surface);
+  assert.ok(offset>=0,`${surface} が監査対象の問題にありません`);
+  assert.equal(dictionaryKeys.find(key=>historyQuestion.startsWith(key,offset)),surface,`${surface} が最長一致になっていません`);
+}
 const unresolved=[];
 for(const item of questions){
   const plain=[]; let buffer="", offset=0;
