@@ -31,8 +31,31 @@ assert.equal(rules.invariant(rice.surface_form),"こめ");
 assert.equal(rules.questionWord(tokens[tokens.indexOf(what)+1].surface_form),"なに");
 
 const questions=JSON.parse(fs.readFileSync("data/questions.json","utf8"));
+assert.ok(!questions.some(item=>String(item.id)==="42620"),"削除対象の問題が残っています");
 const standardEndings=questions.filter(item=>item.question.includes("何でしょう"));
 assert.ok(standardEndings.length>100,"「何でしょう」を含む問題が監査対象にありません");
 for(const item of standardEndings) assert.ok(rules.phrases["何でしょう"],item.id);
 
-console.log(`読みルール: ${standardEndings.length}問の「何でしょう」+「米」+「何＋一般名詞」4例を確認`);
+const dictionary=JSON.parse(fs.readFileSync("data/dictionary.json","utf8"));
+const dictionaryKeys=Object.keys(dictionary).sort((a,b)=>b.length-a.length);
+const unresolved=[];
+for(const item of questions){
+  const plain=[]; let buffer="", offset=0;
+  while(offset<item.question.length){
+    const key=dictionaryKeys.find(candidate=>item.question.startsWith(candidate,offset));
+    if(key){ if(buffer){ plain.push(buffer); buffer=""; } offset+=key.length; }
+    else buffer+=item.question[offset++];
+  }
+  if(buffer) plain.push(buffer);
+  for(const text of plain) for(const token of tokenizer.tokenize(text)){
+    const unknown=!token.reading||token.word_type==="UNKNOWN";
+    const alpha=token.surface_form;
+    const handledAcronym=/^[A-Z]{2,}$/.test(alpha)||(/^[A-Za-z]+$/.test(alpha)&&alpha.length<=2);
+    if(unknown&&/[㐀-鿿々〆ヵヶ]/.test(alpha)) unresolved.push(`${item.id}:${alpha}`);
+    if(unknown&&/^[A-Za-z]+$/.test(alpha)&&!handledAcronym) unresolved.push(`${item.id}:${alpha}`);
+  }
+}
+assert.deepEqual(unresolved,[],`未解決の読み: ${unresolved.join(", ")}`);
+assert.match(fs.readFileSync("assets/js/app.js","utf8"),/add\("km ｋｍ",\{t:"U"/);
+
+console.log(`読みルール: 全${questions.length}問の漢字・英字・単位と「何」の文脈を確認`);

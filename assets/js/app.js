@@ -11,7 +11,7 @@ async function loadDefaultQuestions() {
 }
 async function loadDefaultDictionary() {
   try {
-    const response = await fetch("data/dictionary.json?v=20261029-2");
+    const response = await fetch("data/dictionary.json?v=20261029-3");
     if (!response.ok) return {};
     const dict = await response.json();
     if (!dict || typeof dict !== "object" || Array.isArray(dict)) return {};
@@ -24,6 +24,7 @@ const SAMPLE = await loadDefaultQuestions();
 const DEFAULT_DICT = await loadDefaultDictionary();
 const DEFAULT_SET = {rate:1.1,pitch:1,vol:1,mode:"kana",lead:true,turn:true,turnPause:320,post:1.03,fall:true,comma:false,paren:true,sound:true,engine:"open-jtalk",voice:""};
 const SAMPLE_VER = 7;
+const REMOVED_QUESTION_IDS = new Set(["42620"]);
 const sampleQs = () => SAMPLE.map((x,i)=>({
   id:x.id||"s2_"+i,
   q:x.question,
@@ -48,12 +49,16 @@ try{
   } }
 }catch(e){}
 state.dict = {...DEFAULT_DICT, ...(state.dict||{})};
+state.questions = state.questions.filter(q=>!REMOVED_QUESTION_IDS.has(String(q.id)));
+if(!state.questions.length) state.questions=sampleQs();
 function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
 
 /* ---------- text helpers ---------- */
 const KANJI = /[㐀-鿿豈-﫿々〆ヵヶ]/;
 const hira = s => s.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0)-0x60));
 const normalize = s => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/\r/g,"").replace(/\n+/g," ").trim();
+const LETTER_READINGS={A:"えー",B:"びー",C:"しー",D:"でぃー",E:"いー",F:"えふ",G:"じー",H:"えいち",I:"あい",J:"じぇー",K:"けー",L:"える",M:"えむ",N:"えぬ",O:"おー",P:"ぴー",Q:"きゅー",R:"あーる",S:"えす",T:"てぃー",U:"ゆー",V:"ぶい",W:"だぶりゅー",X:"えっくす",Y:"わい",Z:"ぜっと"};
+const spellLetters=s=>[...s.toUpperCase()].map(c=>LETTER_READINGS[c]||c).join("");
 // Kuromoji can choose a valid but unexpected reading for quiz-specific terms.
 const READING_OVERRIDES = {
   "一日中":"いちにちじゅう", "今日":"きょう", "明日":"あした", "昨日":"きのう",
@@ -116,6 +121,7 @@ add("周",{t:"S",r:"しゅう"}); add("章",{t:"S",r:"しょう"}); add("席",{t
 add("足",{t:"S",r:"そく",three:"ぞく"}); add("首",{t:"S",r:"しゅ"});
 add("頭",{t:"S",r:"とう"}); add("通",{t:"S",r:"つう"}); add("点",{t:"S",r:"てん"}); add("着",{t:"S",r:"ちゃく"}); add("等",{t:"S",r:"とう"}); add("丁目",{t:"S",r:"ちょうめ"}); add("棟",{t:"S",r:"とう"});
 add("ページ",{t:"P",r:"ぺーじ"}); add("% ％ パーセント",{t:"P",r:"ぱーせんと"}); add("ポイント",{t:"P",r:"ぽいんと"});
+add("km ｋｍ",{t:"U",r:"きろめーとる"}); add("m ｍ",{t:"U",r:"めーとる"}); add("cm ｃｍ",{t:"U",r:"せんちめーとる"}); add("kg ｋｇ",{t:"U",r:"きろぐらむ"});
 {const NR={"番":"ばん","番目":"ばんめ","位":"い","枚":"まい","台":"だい","度":"ど","度目":"どめ","倍":"ばい","割":"わり","秒":"びょう","秒間":"びょうかん","名":"めい","代":"だい","条":"じょう","号":"ごう","部":"ぶ","行":"ぎょう","問":"もん","問目":"もんめ","音":"おん","路":"ろ","桁":"けた","文字":"もじ","マス":"ます","打":"だ","種":"しゅ","気圧":"きあつ","キロ":"きろ","メートル":"めーとる","センチ":"せんち","グラム":"ぐらむ","人前":"にんまえ","乗":"じょう"};
  for(const k in NR) add(k,{t:"N",r:NR[k]});}
 add("人",{t:"X",x:"nin"}); add("人目",{t:"X",x:"nin",suf:"め"}); add("日",{t:"X",x:"day"}); add("日間",{t:"X",x:"day",suf:"かん"}); add("日目",{t:"X",x:"day",suf:"め"});
@@ -144,6 +150,7 @@ function counterReading(n, name, prevWasMonth){
     return head+last+def.r+suf;
   }
   if(def.t==="N") return numReading(n) + def.r;
+  if(def.t==="U") return numReading(n) + def.r;
   switch(def.x){
     case "nin":
       if(n===1 && !suf) return "ひとり"; if(n===2 && !suf) return "ふたり";
@@ -296,6 +303,9 @@ function analyze(text, qfix){
         const r = counterReading(n, cName, prevMonth);
         if(r && (isArabic || n<=100000)){ toks.push({s:surf+raw.slice(j,cEnd).map(x=>x.s).join(""), r, src:"num", cnt:cName}); i=cEnd-1; continue; }
       }
+      if(cName && hasDec && CNT[cName].t==="U"){
+        toks.push({s:surf+raw.slice(j,cEnd).map(x=>x.s).join(""),r:decReading(str)+CNT[cName].r,src:"num",cnt:cName}); i=cEnd-1; continue;
+      }
       if(isArabic || surf.length>1){
         const r = hasDec ? decReading(str) : numReading(parseJaNum(str));
         toks.push({s:surf, r, src:"num"}); i=j-1; continue;
@@ -321,6 +331,7 @@ function analyze(text, qfix){
     }
     else if(t.src==="auto"){
       if(/^日本/.test(t.s) && t.r && /^にっぽん/.test(t.r)){ t.r=t.r.replace(/^にっぽん/,"にほん"); t.src="rule"; }
+      else if(/^[A-Za-z]+$/.test(t.s) && (!t.r||t.unk) && (/^[A-Z]{2,}$/.test(t.s)||t.s.length<=2)){ t.r=spellLetters(t.s); t.src="rule"; }
       else if(KANJI.test(t.s)){
         if(AMBIG.has(t.s) || (t.base && AMBIG.has(t.base))) t.flag="読みが複数ある語";
         else if(t.pos1==="固有名詞") t.flag="固有名詞";
