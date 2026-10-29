@@ -2,7 +2,7 @@
   "name": "quiz-read",
   "private": true,
   "scripts": {
-    "check": "node scripts/validate-questions.mjs",
+    "check": "node scripts/validate-questions.mjs && node scripts/test-reading-rules.mjs",
     "serve": "python3 scripts/open-jtalk-server.py"
   }
 }

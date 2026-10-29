@@ -11,7 +11,7 @@ async function loadDefaultQuestions() {
 }
 async function loadDefaultDictionary() {
   try {
-    const response = await fetch("data/dictionary.json");
+    const response = await fetch("data/dictionary.json?v=20261029-2");
     if (!response.ok) return {};
     const dict = await response.json();
     if (!dict || typeof dict !== "object" || Array.isArray(dict)) return {};
@@ -22,7 +22,7 @@ async function loadDefaultDictionary() {
 }
 const SAMPLE = await loadDefaultQuestions();
 const DEFAULT_DICT = await loadDefaultDictionary();
-const DEFAULT_SET = {rate:1.1,pitch:1,vol:1,mode:"hybrid",lead:true,turn:true,turnPause:320,post:1.03,fall:true,comma:false,paren:true,sound:true,engine:"open-jtalk",voice:""};
+const DEFAULT_SET = {rate:1.1,pitch:1,vol:1,mode:"kana",lead:true,turn:true,turnPause:320,post:1.03,fall:true,comma:false,paren:true,sound:true,engine:"open-jtalk",voice:""};
 const SAMPLE_VER = 7;
 const sampleQs = () => SAMPLE.map((x,i)=>({
   id:x.id||"s2_"+i,
@@ -54,6 +54,15 @@ function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e)
 const KANJI = /[㐀-鿿豈-﫿々〆ヵヶ]/;
 const hira = s => s.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0)-0x60));
 const normalize = s => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/\r/g,"").replace(/\n+/g," ").trim();
+// Kuromoji can choose a valid but unexpected reading for quiz-specific terms.
+const READING_OVERRIDES = {
+  "一日中":"いちにちじゅう", "今日":"きょう", "明日":"あした", "昨日":"きのう",
+  "大人":"おとな", "相撲":"すもう", "何故":"なぜ", "予め":"あらかじめ", "所謂":"いわゆる",
+  "日本":"にほん", "本日":"ほんじつ", "一昨年":"おととし", "一昨々年":"さきおととし",
+  "各々":"おのおの", "概ね":"おおむね", "凡そ":"およそ", "予て":"かねて"
+};
+const READING_RULES=window.QuizReadingRules;
+if(!READING_RULES) throw new Error("読みルールを読み込めませんでした");
 
 /* ---------- numbers & counters ---------- */
 const D = ["","いち","に","さん","よん","ご","ろく","なな","はち","きゅう"];
@@ -248,8 +257,11 @@ const isNumTok = t => t.src===undefined && /^[0-9〇一二三四五六七八九�
 function analyze(text, qfix){
   const S = state.set;
   let pieces = parseRuby(normalize(text), S.paren);
+  // Explicit fixes win over dictionaries; built-in rules are only a fallback.
   pieces = applyDict(pieces, qfix, "q");
+  pieces = applyDict(pieces, READING_RULES.phrases, "context");
   pieces = applyDict(pieces, state.dict, "dict");
+  pieces = applyDict(pieces, READING_OVERRIDES, "rule");
   let raw = [];
   for(const p of pieces){
     if(p.t==="fix") raw.push({s:p.s, r:p.r, src:p.src});
@@ -294,16 +306,21 @@ function analyze(text, qfix){
   // rules and flags
   for(let i=0;i<toks.length;i++){
     const t=toks[i], nx=toks[i+1];
-    if(t.src==="auto"){
-      if(t.s==="何"){
+    const explicit=t.src==="q"||t.src==="ruby";
+    const invariant=!explicit&&READING_RULES.invariant(t.s);
+    if(invariant){
+      t.r=invariant; t.src="context"; t.flag=null;
+    }
+    else if(!explicit && t.s==="何"){
         const nr = nx && nx.src==="auto" && CNT[nx.s] ? nanCounter(nx.s) : null;
         if(nr){ t.s+=nx.s; t.r=nr; t.src="rule"; toks.splice(i+1,1); continue; }
-        if(nx && nx.s==="色"){ t.r="なに"; nx.r="いろ"; nx.src="rule"; }
-        else if(nx && (/^(で|だ|と|の|ど|ね|な|日|年|月|時|回|人|本|度|番|曜|階|個|歳|枚|台|分|秒|点|倍|割|万|千|百|十|音|路|桁|鍵|か国|ヶ国|カ国|パーセント|グラム|キロ|メートル|角|乗|種類)/.test(nx.s) || /^でしょ/.test(nx.s) || CNT[nx.s] || nx.pos1==="接尾" || nx.pos1==="数")) t.r="なん";
-        else t.r="なに";
+        t.r=READING_RULES.questionWord(nx&&nx.s);
+        if(nx && nx.s==="色"){ nx.r="いろ"; nx.src="rule"; }
+        if(nx && (CNT[nx.s] || nx.pos1==="接尾" || nx.pos1==="数")) t.r="なん";
         t.src="rule";
-      }
-      else if(/^日本/.test(t.s) && t.r && /^にっぽん/.test(t.r)){ t.r=t.r.replace(/^にっぽん/,"にほん"); t.src="rule"; }
+    }
+    else if(t.src==="auto"){
+      if(/^日本/.test(t.s) && t.r && /^にっぽん/.test(t.r)){ t.r=t.r.replace(/^にっぽん/,"にほん"); t.src="rule"; }
       else if(KANJI.test(t.s)){
         if(AMBIG.has(t.s) || (t.base && AMBIG.has(t.base))) t.flag="読みが複数ある語";
         else if(t.pos1==="固有名詞") t.flag="固有名詞";
@@ -489,8 +506,18 @@ function defaultGame(){
 }
 if(!state.game || !Array.isArray(state.game.players)) defaultGame();
 state.played = state.played || {};
-state.ui = {view:"game", tapBuzz:false, skipDone:true, ...(state.ui||{})};
+state.ui = {view:"game", tapBuzz:false, skipDone:true, query:"", theme:"auto", ...(state.ui||{})};
 players().forEach(p=>{ if(p.remote) p.online=false; });
+
+function applyTheme(){
+  const mode=["auto","light","dark"].includes(state.ui.theme)?state.ui.theme:"auto";
+  if(mode==="auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme",mode);
+  const labels={auto:"自動",light:"ライト",dark:"ダーク"};
+  $("themeBtn").title=`表示テーマ：${labels[mode]}（クリックで切替）`;
+  $("themeBtn").setAttribute("aria-label",$("themeBtn").title);
+}
+applyTheme();
 
 const getP = id => id==="solo" ? SOLO : players().find(p=>p.id===id);
 const colorOf = p => (!p || p.color<0) ? "var(--accent)" : COLORS[p.color % COLORS.length];
@@ -745,7 +772,8 @@ function rereadFromStart(){
 }
 function nextQuestion(){ step(1); }
 function step(d){
-  const v=viewList(); if(!v.length) return;
+  // Text search is for finding/editing questions; it must not silently narrow the match pool.
+  const v=viewList(false); if(!v.length) return;
   let p=v.indexOf(state.idx); if(p<0) p=0;
   const skip = state.ui.skipDone && d>0;
   for(let i=0;i<v.length;i++){
@@ -761,8 +789,14 @@ function go(i){
   ph="idle"; qs=newQS(); banner=null; reveal=0; selTok=-1;
   refresh();
 }
-function viewList(){
-  let ids = state.questions.map((q,i)=>i).filter(i=>(!state.genre || (state.questions[i].g||"自作")===state.genre) && inLevel(state.questions[i]));
+function viewList(useQuery=true){
+  const query=useQuery ? normalize(state.ui.query||"").toLocaleLowerCase("ja") : "";
+  let ids = state.questions.map((q,i)=>i).filter(i=>{
+    const item=state.questions[i];
+    const matchesGenre=!state.genre || (item.g||"自作")===state.genre;
+    const haystack=`${plainQ(item)} ${item.a||""} ${item.g||""}`.toLocaleLowerCase("ja");
+    return matchesGenre && inLevel(item) && (!query || haystack.includes(query));
+  });
   if(state.order){ const set=new Set(ids); const ord=state.order.filter(i=>set.has(i)); if(ord.length===ids.length) ids=ord; }
   return ids;
 }
@@ -834,6 +868,8 @@ function renderStage(){
   const [pt,pc]=pills[ph]; const pp=$("phasePill"); pp.textContent=pt; pp.className="pill "+pc;
   $("genrePill").textContent=q.g||"自作";
   const lp=$("levelPill"); lp.hidden=!q.d; lp.textContent="難易度 "+(q.d||""); lp.className="pill lv-"+(q.d||"");
+  const reviewCount=an.toks.filter(t=>t.flag || (KANJI.test(t.s)&&!t.r)).length;
+  const rh=$("readHealth"); rh.textContent=reviewCount?`読み要確認 ${reviewCount}`:"読み確認済み"; rh.className="read-health "+(reviewCount?"warn":"ok");
   renderText(); renderBuzz();
   $("thinkBar").hidden = ph!=="think";
   const bn=$("banner"); bn.hidden=!banner; if(banner){ bn.textContent=banner.text; bn.className="banner"+(banner.kind==="out"?" out":""); }
@@ -916,18 +952,25 @@ function render(){ renderStage(); renderBoard(); broadcast(); }
 /* ---------- rendering: book ---------- */
 function renderToks(){
   const box=$("toks"); box.innerHTML="";
+  const flagged=an.toks.filter(t=>t.flag).length;
+  const unresolved=an.toks.filter(t=>KANJI.test(t.s) && !t.r).length;
+  const summary=$("readSummary");
+  if(summary){
+    summary.textContent = unresolved ? `要確認 ${unresolved}件` : flagged ? `確認推奨 ${flagged}件` : "読みチェック済み";
+    summary.className = "read-summary"+(unresolved||flagged ? " warn" : " ok");
+  }
   an.toks.forEach((t,i)=>{
     const b=document.createElement("button");
     const needs = KANJI.test(t.s) || t.src==="num" || t.src==="ruby" || t.src==="dict" || t.src==="q";
     b.className="tok";
     if(!needs){ b.classList.add("plain"); b.tabIndex=-1; }
-    else if(t.src==="ruby"||t.src==="dict"||t.src==="q") b.classList.add("fixed");
+    else if(t.src==="ruby"||t.src==="dict"||t.src==="q"||t.src==="context"||t.src==="rule") b.classList.add("fixed");
     else if(t.src==="num") b.classList.add("num");
     else if(t.flag) b.classList.add("flag");
     else b.classList.add("k");
     if(i===selTok) b.classList.add("sel");
     b.innerHTML = `<span class="rt">${needs? esc(t.r|| "？") : ""}</span><span>${esc(t.s)}</span>`;
-    if(needs){ b.title = t.flag==="固有名詞" && state.set.mode!=="kana" ? "固有名詞：漢字のまま音声に渡します。試聴して違えば読みを指定してください" : t.flag ? `要確認：${t.flag}` : t.src==="num"?"数詞ルールで決定": t.src==="auto"?"自動判定": "指定済み"; b.onclick=()=>openEditor(i); }
+    if(needs){ b.title = t.flag==="固有名詞" && state.set.mode!=="kana" ? "固有名詞：漢字のまま音声に渡します。試聴して違えば読みを指定してください" : t.flag ? `要確認：${t.flag}` : t.src==="num"?"数詞ルールで決定": t.src==="context"||t.src==="rule"?"文脈ルールで決定":t.src==="auto"?"自動判定": "指定済み"; b.onclick=()=>openEditor(i); }
     box.appendChild(b);
   });
   $("editor").hidden = selTok<0;
@@ -949,6 +992,7 @@ function renderList(){
   gs.value=state.genre||"";
   $("shuffleBtn").setAttribute("aria-pressed", String(!!state.order));
   $("skipDone").checked=!!state.ui.skipDone;
+  $("qSearch").value=state.ui.query||"";
   const frag=document.createDocumentFragment();
   viewList().forEach((i,n)=>{
     const q=state.questions[i];
@@ -957,6 +1001,9 @@ function renderList(){
     b.innerHTML=`<span class="n">${n+1}</span><span class="t">${q.d?`<span class="lv lv-${q.d}">${q.d}</span>`:""}${state.genre?"":`<span class="gn">${esc(q.g||"自作")}</span>`}${esc(plainQ(q))}${state.played[q.id]?'<span class="done">済</span>':""}</span>`;
     b.onclick=()=>go(i); li.appendChild(b); frag.appendChild(li);
   });
+  if(!frag.childNodes.length){
+    const li=document.createElement("li"); li.className="hint empty-list"; li.textContent="条件に合う問題がありません"; frag.appendChild(li);
+  }
   ul.appendChild(frag);
   const cur=ul.querySelector('[aria-current="true"]'); if(cur && !$("viewBook").hidden) cur.scrollIntoView({block:"nearest"});
   $("edQ").value=Q().q; $("edA").value=Q().a; $("edG").value=Q().g||""; $("edD").value=Q().d||"";
@@ -982,19 +1029,51 @@ function openEditor(i){
   selTok=i; const t=an.toks[i];
   $("editor").hidden=false; $("edWord").textContent=t.s; $("edRead").value=t.r||"";
   $("edNote").textContent = t.flag ? `要確認（${t.flag}）。文脈に合う読みか確かめてください。` :
-    t.src==="num" ? "数と助数詞の組み合わせから読みを決めています。" : t.src==="rule" ? "文脈のルールで読みを決めています。" :
+    t.src==="num" ? "数と助数詞の組み合わせから読みを決めています。" : (t.src==="rule"||t.src==="context") ? "前後の文脈と文法ルールで読みを決めています。" :
     t.src==="q" ? "この問題だけの読みが指定されています。" : t.src==="dict" ? "辞書の読みを使っています。" : t.src==="ruby" ? "問題文のルビ指定を使っています。" : "形態素解析による自動判定です。";
   $("edReset").hidden = !(t.src==="q"||t.src==="dict");
   renderToks(); $("edRead").focus(); $("edRead").select();
 }
 const edVal = () => hira($("edRead").value.trim());
-$("edThis").onclick=()=>{ const t=an.toks[selTok], v=edVal(); if(!t||!v) return; Q().fix=Q().fix||{}; Q().fix[t.s]=v; save(); refresh(); toast("この問題の読みを指定しました"); };
-$("edDict").onclick=()=>{ const t=an.toks[selTok], v=edVal(); if(!t||!v) return; state.dict[t.s]=v; save(); renderDict(); refresh(); toast(`辞書に「${t.s}＝${v}」を登録しました`); };
+function checkedReading(){
+  const v=edVal();
+  if(!v){ toast("読みを入力してください"); return ""; }
+  if(!/^[ぁ-ゖー・\s]+$/.test(v)){ toast("読みはひらがなで入力してください"); $("edRead").focus(); return ""; }
+  return v;
+}
+$("edThis").onclick=()=>{ const t=an.toks[selTok], v=checkedReading(); if(!t||!v) return; Q().fix=Q().fix||{}; Q().fix[t.s]=v; save(); refresh(); toast("この問題の読みを指定しました"); };
+$("edDict").onclick=()=>{ const t=an.toks[selTok], v=checkedReading(); if(!t||!v) return; state.dict[t.s]=v; save(); renderDict(); refresh(); toast(`辞書に「${t.s}＝${v}」を登録しました`); };
 $("edReset").onclick=()=>{ const t=an.toks[selTok]; if(!t) return; if(Q().fix) delete Q().fix[t.s]; if(t.src==="dict") delete state.dict[t.s]; save(); renderDict(); refresh(); };
 $("edSay").onclick=()=>{ const v=edVal(); if(v) speakSeq([{speak:v, rate:state.set.rate, pitch:state.set.pitch, pause:0, mora:1}], null); };
 $("edRead").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("edThis").click(); } });
 $("bookPlay").onclick=()=>{ if(ph!=="idle"&&ph!=="revealed"){ toast("対戦中の問題は対戦画面で読み上げてください"); return; } const items=plan.map(x=>({...x,marks:null,end:null})); items.lead=true; speakSeq(items,null); };
 $("bookStop").onclick=()=>stopSpeech();
+$("nextReview").onclick=()=>{
+  const needsReview=t=>!!t.flag || (KANJI.test(t.s) && !t.r);
+  const here=an.toks.findIndex((t,i)=>i>selTok && needsReview(t));
+  if(here>=0){ openEditor(here); return; }
+  for(let n=1;n<=state.questions.length;n++){
+    const i=(state.idx+n)%state.questions.length;
+    const check=analyze(state.questions[i].q,state.questions[i].fix);
+    const ti=check.toks.findIndex(needsReview);
+    if(ti>=0){ go(i); openEditor(ti); return; }
+  }
+  toast("要確認の読みはありません");
+};
+
+$("readHealth").onclick=()=>{
+  setView("book");
+  const i=an.toks.findIndex(t=>t.flag || (KANJI.test(t.s)&&!t.r));
+  if(i>=0) openEditor(i); else $("bookPlay").focus();
+};
+
+$("themeBtn").onclick=()=>{
+  const modes=["auto","dark","light"], i=modes.indexOf(state.ui.theme);
+  state.ui.theme=modes[(i+1+modes.length)%modes.length]; save(); applyTheme();
+};
+$("helpBtn").onclick=()=>{ const d=$("helpDialog"); if(typeof d.showModal==="function") d.showModal(); else d.setAttribute("open",""); };
+$("helpClose").onclick=()=>$("helpDialog").close();
+$("helpDialog").addEventListener("click",e=>{ if(e.target===$("helpDialog")) $("helpDialog").close(); });
 
 /* ---------- views ---------- */
 function setView(v){
@@ -1084,6 +1163,8 @@ document.addEventListener("keydown",e=>{
   }
   if(e.target.closest("input,textarea,select")) return;
   if(e.metaKey||e.ctrlKey||e.altKey) return;
+  if(e.key==="?" && !$("helpDialog").open){ e.preventDefault(); $("helpBtn").click(); return; }
+  if(state.ui.view==="book" && e.key==="/"){ e.preventDefault(); $("qSearch").focus(); return; }
   if(e.code==="Escape" && document.body.classList.contains("live")){ setLive(false); return; }
   if(state.ui.view!=="game") return;
   if(e.repeat) return;
@@ -1126,6 +1207,11 @@ function applyFilter(){
 }
 $("genreSel").onchange=()=>{ state.genre=$("genreSel").value; applyFilter(); };
 $("levelSel").onchange=()=>{ state.level=$("levelSel").value; applyFilter(); };
+let searchTimer=0;
+$("qSearch").addEventListener("input",()=>{
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(()=>{ state.ui.query=$("qSearch").value; applyFilter(); },120);
+});
 $("shuffleBtn").onclick=()=>{
   if(state.order){ state.order=null; save(); renderList(); toast("元の順番に戻しました"); return; }
   const a=state.questions.map((q,i)=>i); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
@@ -1212,7 +1298,7 @@ $("saveFile").onclick=()=>{
   const d=new Date(); a.download=`quizread-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.json`;
   document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1000);
 };
-$("dAdd").onclick=()=>{ const w=$("dW").value.trim(), r=hira($("dR").value.trim()); if(!w||!r){ toast("表記と読みを入力してください"); return; } state.dict[w]=r; save(); $("dW").value=""; $("dR").value=""; renderDict(); refresh(); toast("登録しました"); };
+$("dAdd").onclick=()=>{ const w=$("dW").value.trim(), r=hira($("dR").value.trim()); if(!w||!r){ toast("表記と読みを入力してください"); return; } if(!/^[ぁ-ゖー・\s]+$/.test(r)){ toast("読みはひらがなで入力してください"); $("dR").focus(); return; } state.dict[w]=r; save(); $("dW").value=""; $("dR").value=""; renderDict(); refresh(); toast("登録しました"); };
 $("dR").addEventListener("keydown",e=>{ if(e.key==="Enter") $("dAdd").click(); });
 
 /* ---------- voice & reading settings ---------- */

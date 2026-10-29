@@ -4,18 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="description" content="早押しクイズの問題文を人の問読みに近い抑揚で読み上げ、キーボード・早押し機・スマホで早押し対戦できるアプリ">
-<meta name="theme-color" content="#0C6A7C">
-<title>問読みスタジオ</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Dela+Gothic+One&display=swap">
-<link rel="stylesheet" href="assets/css/app.css?v=20260929-3">
+<meta name="theme-color" content="#F7F7F5">
+<title>QuizRead — 早押しクイズ読み上げ</title>
+<link rel="stylesheet" href="assets/css/app.css?v=20261029-5">
 
 </head>
 <body>
 <div class="wrap">
   <header class="top">
-    <h1 class="brand">問読みスタジオ</h1>
+    <h1 class="brand">QuizRead</h1>
     <nav class="nav" aria-label="画面">
       <button id="navGame" aria-current="page">対戦</button>
       <button id="navBook">問題集</button>
@@ -25,6 +22,8 @@
       <span class="chip busy hostonly" id="chipDict"><i></i><span>辞書を読み込み中…</span></span>
       <span class="chip hostonly" id="chipVoice"><i></i><span>音声を確認中…</span></span>
       <span class="chip" id="chipRoom" hidden><i></i><span></span></span>
+      <button class="iconbtn" id="themeBtn" title="表示テーマを切り替える" aria-label="表示テーマを切り替える">◐</button>
+      <button class="iconbtn" id="helpBtn" title="キーボード操作を見る" aria-label="キーボード操作を見る">?</button>
       <button class="btn small" id="liveBtn" title="司会以外の要素を隠して大きく表示します（Esc で戻る）">本番表示</button>
       <button class="btn small hostonly" id="joinBtn">スマホを早押しボタンにする</button>
     </div>
@@ -40,6 +39,7 @@
           <span class="pill" id="phasePill">待機中</span>
           <span class="pill" id="genrePill"></span>
           <span class="pill" id="levelPill" hidden></span>
+          <button class="read-health" id="readHealth" type="button" title="問題集で読みを確認"></button>
           <span class="spacer"></span>
         </div>
         <div class="qtext" id="qText"></div>
@@ -131,7 +131,7 @@
   <section id="viewBook" class="grid" hidden>
     <div class="col">
       <section class="card section" aria-label="読みの確認">
-        <h2>読みの確認 <span class="sub" id="bookTitle"></span></h2>
+        <h2>読みの確認 <span class="sub" id="bookTitle"></span><span class="read-summary" id="readSummary"></span></h2>
         <div class="legend">
           <span><i style="background:var(--panel2)"></i>自動判定</span>
           <span><i style="background:var(--warn-soft);box-shadow:inset 0 -2px 0 var(--warn)"></i>要確認（読みが複数ある語・固有名詞）</span>
@@ -148,7 +148,7 @@
           <button class="btn ghost" id="edSay">試聴</button>
           <span class="note" id="edNote"></span>
         </div>
-        <div class="row"><button class="btn" id="bookPlay">この問題を試聴</button><button class="btn ghost" id="bookStop">止める</button></div>
+        <div class="row"><button class="btn primary compact" id="bookPlay">この問題を試聴</button><button class="btn ghost" id="bookStop">止める</button><span class="spacer"></span><button class="btn" id="nextReview">次の要確認へ</button></div>
         <details>
           <summary>読み上げプラン（間の配分と、音声エンジンに送る文）</summary>
           <div class="plan" id="plan" style="margin-top:10px"></div>
@@ -182,6 +182,11 @@
     </div>
     <aside class="card side">
       <div class="pane">
+        <div class="searchbox">
+          <span aria-hidden="true">⌕</span>
+          <input type="search" id="qSearch" placeholder="問題文・答えを検索" aria-label="問題文・答えを検索">
+          <kbd>/</kbd>
+        </div>
         <div class="row">
           <select id="levelSel" aria-label="出題範囲（難易度）" style="flex:1;min-width:0"></select>
         </div>
@@ -228,8 +233,8 @@
       <div class="field">
         <label class="lbl" for="modeSel">読みの渡し方</label>
         <select id="modeSel">
-          <option value="hybrid">標準：迷う語だけ かなで渡す（抑揚が自然）</option>
-          <option value="kana">確実：漢字の語はすべて かなで渡す</option>
+          <option value="kana">精度優先：漢字の語はすべて かなで渡す</option>
+          <option value="hybrid">自然さ優先：迷う語だけ かなで渡す（抑揚が自然）</option>
         </select>
       </div>
       <label class="chk"><input type="checkbox" id="cLead"><span>最初に「問題」とコールする</span></label>
@@ -243,6 +248,18 @@
     </div>
   </section>
 </div>
+
+<dialog class="help-dialog" id="helpDialog">
+  <div class="dialog-head"><div><span class="eyebrow">QUICK GUIDE</span><h2>キーボード操作</h2></div><button class="iconbtn" id="helpClose" aria-label="閉じる">×</button></div>
+  <div class="keygrid">
+    <div><kbd>Space</kbd><span>読み上げ開始／早押し／次の問題</span></div>
+    <div><kbd>Enter</kbd><span>答えを表示／正解判定</span></div>
+    <div><kbd>O</kbd><span>正解</span></div><div><kbd>X</kbd><span>誤答</span></div>
+    <div><kbd>T</kbd><span>スルー</span></div><div><kbd>R</kbd><span>最初から読む</span></div>
+    <div><kbd>U</kbd><span>直前の判定を取り消す</span></div><div><kbd>← →</kbd><span>前／次の問題</span></div>
+    <div><kbd>/</kbd><span>問題集を検索</span></div><div><kbd>Esc</kbd><span>本番表示を終了</span></div>
+  </div>
+</dialog>
 
 <!-- ===== スマホ早押しボタン ===== -->
 <div class="bz" id="bz">
@@ -265,6 +282,7 @@
 <script>window.QUIZ_DICT_RAW=true;</script>
 <script src="vendor/kuromoji.min.js"></script>
 <script src="vendor/qrcode.js"></script>
-<script src="assets/js/app.js?v=20260929-4"></script>
+<script src="assets/js/reading-rules.js?v=20261029-2"></script>
+<script src="assets/js/app.js?v=20261029-6"></script>
 </body>
 </html>
