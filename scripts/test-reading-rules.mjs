@@ -56,14 +56,17 @@ const dictionary=JSON.parse(fs.readFileSync("data/dictionary.json","utf8"));
 const dictionaryKeys=Object.keys(dictionary).sort((a,b)=>b.length-a.length);
 const historicalReadings={
   "公卿":"くぎょう","文武天皇":"もんむてんのう","元明天皇":"げんめいてんのう",
-  "元正天皇":"げんしょうてんのう","日本書紀":"にほんしょき"
+  "元正天皇":"げんしょうてんのう","日本書紀":"にほんしょき",
+  "産近甲龍":"さんきんこうりゅう","兵法書":"へいほうしょ","中宮定子":"ちゅうぐうていし"
 };
-const historyQuestion=questions.find(item=>String(item.id)==="15702").question;
 for(const [surface,reading] of Object.entries(historicalReadings)){
   assert.equal(dictionary[surface],reading,`${surface} の読み`);
-  const offset=historyQuestion.indexOf(surface);
+  const containing=questions.find(item=>item.question.includes(surface)||item.answer.includes(surface));
+  assert.ok(containing,`${surface} が監査対象の問題にありません`);
+  const text=containing.question.includes(surface)?containing.question:containing.answer;
+  const offset=text.indexOf(surface);
   assert.ok(offset>=0,`${surface} が監査対象の問題にありません`);
-  assert.equal(dictionaryKeys.find(key=>historyQuestion.startsWith(key,offset)),surface,`${surface} が最長一致になっていません`);
+  assert.equal(dictionaryKeys.find(key=>text.startsWith(key,offset)),surface,`${surface} が最長一致になっていません`);
 }
 const unresolved=[];
 for(const item of questions){

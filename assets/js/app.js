@@ -18,7 +18,7 @@ async function loadDefaultQuestions() {
 }
 async function loadDefaultDictionary() {
   try {
-    const response = await fetch("data/dictionary.json?v=20261030-2");
+    const response = await fetch("data/dictionary.json?v=20261030-3");
     if (!response.ok) return {};
     const dict = await response.json();
     if (!dict || typeof dict !== "object" || Array.isArray(dict)) return {};
