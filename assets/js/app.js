@@ -2,6 +2,7 @@
 "use strict";
 const $ = id => document.getElementById(id);
 const LS = "monyomi.v1";
+const hira = s => s.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0)-0x60));
 async function loadDefaultQuestions() {
   const sources=[
     {url:"data/questions.json?v=20261030-1",source:"minhaya"},
@@ -24,6 +25,7 @@ async function loadDefaultDictionary() {
     if (!dict || typeof dict !== "object" || Array.isArray(dict)) return {};
     return Object.fromEntries(Object.entries(dict).filter(([k,v]) => k && typeof v === "string").map(([k,v]) => [k, hira(v)]));
   } catch (e) {
+    console.error("内蔵読み辞書の読み込みに失敗しました", e);
     return {};
   }
 }
@@ -73,7 +75,6 @@ function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e)
 
 /* ---------- text helpers ---------- */
 const KANJI = /[㐀-鿿豈-﫿々〆ヵヶ]/;
-const hira = s => s.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0)-0x60));
 const normalize = s => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/\r/g,"").replace(/\n+/g," ").trim();
 const LETTER_READINGS={A:"えー",B:"びー",C:"しー",D:"でぃー",E:"いー",F:"えふ",G:"じー",H:"えいち",I:"あい",J:"じぇー",K:"けー",L:"える",M:"えむ",N:"えぬ",O:"おー",P:"ぴー",Q:"きゅー",R:"あーる",S:"えす",T:"てぃー",U:"ゆー",V:"ぶい",W:"だぶりゅー",X:"えっくす",Y:"わい",Z:"ぜっと"};
 const spellLetters=s=>[...s.toUpperCase()].map(c=>LETTER_READINGS[c]||c).join("");

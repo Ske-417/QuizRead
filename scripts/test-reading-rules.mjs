@@ -54,6 +54,16 @@ for(const item of standardEndings) assert.ok(rules.phrases["何でしょう"],it
 
 const dictionary=JSON.parse(fs.readFileSync("data/dictionary.json","utf8"));
 const dictionaryKeys=Object.keys(dictionary).sort((a,b)=>b.length-a.length);
+const compoundBeforeTokenize=rules.applyLongest([{t:"txt",s:"中宮定子に仕えて"}],[
+  {map:{"中宮":"なかみや","定子":"さだこ"},src:"q"},
+  {map:dictionary,src:"core"}
+]);
+assert.deepEqual(compoundBeforeTokenize.slice(0,2).map(piece=>[piece.s,piece.r||null]),[
+  ["中宮定子","ちゅうぐうていし"],["に仕えて",null]
+],"短い個別登録より先に大きな複合語を引けていません");
+const appSource=fs.readFileSync("assets/js/app.js","utf8");
+assert.ok(appSource.indexOf("const hira")<appSource.indexOf("await loadDefaultDictionary()"),
+  "読み変換関数が内蔵辞書のロードより後に初期化されています");
 const historicalReadings={
   "公卿":"くぎょう","文武天皇":"もんむてんのう","元明天皇":"げんめいてんのう",
   "元正天皇":"げんしょうてんのう","日本書紀":"にほんしょき",
