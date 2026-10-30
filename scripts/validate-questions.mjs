@@ -1,26 +1,30 @@
 import fs from "node:fs";
 
-const dataUrl = new URL("../data/questions.json", import.meta.url);
-const questions = JSON.parse(fs.readFileSync(dataUrl, "utf8"));
+const files=[
+  {name:"みんはや",url:new URL("../data/questions.json",import.meta.url)},
+  {name:"ChatGPT",url:new URL("../data/questions-chatgpt.json",import.meta.url)}
+];
+const batches=files.map(file=>({name:file.name,questions:JSON.parse(fs.readFileSync(file.url,"utf8"))}));
+const questions=batches.flatMap(batch=>batch.questions.map(question=>({...question,__source:batch.name})));
 const requiredFields = ["id", "question", "answer", "genre"];
 const errors = [];
 const seen = new Map();
 const seenIds = new Map();
 
-if (!Array.isArray(questions)) {
-  errors.push("ルートは配列にしてください");
-} else {
+for(const batch of batches) if(!Array.isArray(batch.questions)) errors.push(`${batch.name}: ルートは配列にしてください`);
+if(!errors.length){
   questions.forEach((question, index) => {
-    const label = `${index + 1}問目`;
+    const label = `${question.__source} ${index + 1}問目`;
     for (const field of requiredFields) {
       if (typeof question[field] !== "string" || !question[field].trim()) {
         errors.push(`${label}: ${field} は空でない文字列にしてください`);
       }
     }
-    if (seenIds.has(question.id)) {
-      errors.push(`${label}: ${seenIds.get(question.id)}問目と id が重複しています`);
+    const scopedId=`${question.__source}:${question.id}`;
+    if (seenIds.has(scopedId)) {
+      errors.push(`${label}: ${seenIds.get(scopedId)}と id が重複しています`);
     } else {
-      seenIds.set(question.id, index + 1);
+      seenIds.set(scopedId,label);
     }
 
     const key = `${question.question?.trim()}\u0000${question.answer?.trim()}`;
@@ -39,5 +43,5 @@ if (errors.length) {
   process.exitCode = 1;
 } else {
   const genres = new Set(questions.map(question => question.genre));
-  console.log(`問題データ: ${questions.length}問 / ${genres.size}ジャンル / エラーなし`);
+  console.log(`問題データ: ${batches.map(batch=>`${batch.name} ${batch.questions.length}問`).join(" / ")} / 合計${questions.length}問 / ${genres.size}ジャンル / エラーなし`);
 }

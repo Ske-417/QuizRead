@@ -33,6 +33,8 @@ const sameSurface=rules.applyLongest([{t:"txt",s:"日本語"}],[
   {map:{"日本語":"ユーザー"},src:"dict"},{map:{"日本語":"内蔵"},src:"core"}
 ]);
 assert.equal(sameSurface[0].r,"ユーザー","同じ表記ではユーザー辞書を優先");
+const asciiBoundary=rules.applyLongest([{t:"txt",s:"unique uni"}],[{map:{uni:"ゆに"},src:"core"}]);
+assert.deepEqual(asciiBoundary.map(piece=>piece.s),["unique ","uni"],"英字語の途中で部分一致しています");
 
 const tokenizer=await globalThis.QuizTokenizer.build("dict/");
 const tokens=tokenizer.tokenize("小麦・米・トウモロコシは何科の植物でしょう？");
@@ -41,7 +43,10 @@ const what=tokens.find(token=>token.surface_form==="何");
 assert.equal(rules.invariant(rice.surface_form),"こめ");
 assert.equal(rules.questionWord(tokens[tokens.indexOf(what)+1].surface_form),"なに");
 
-const questions=JSON.parse(fs.readFileSync("data/questions.json","utf8"));
+const questions=[
+  ...JSON.parse(fs.readFileSync("data/questions.json","utf8")),
+  ...JSON.parse(fs.readFileSync("data/questions-chatgpt.json","utf8")).map(item=>({...item,id:`chatgpt:${item.id}`}))
+];
 assert.ok(!questions.some(item=>String(item.id)==="42620"),"削除対象の問題が残っています");
 const standardEndings=questions.filter(item=>item.question.includes("何でしょう"));
 assert.ok(standardEndings.length>100,"「何でしょう」を含む問題が監査対象にありません");
@@ -62,19 +67,21 @@ for(const [surface,reading] of Object.entries(historicalReadings)){
 }
 const unresolved=[];
 for(const item of questions){
-  const plain=[]; let buffer="", offset=0;
-  while(offset<item.question.length){
-    const key=dictionaryKeys.find(candidate=>item.question.startsWith(candidate,offset));
-    if(key){ if(buffer){ plain.push(buffer); buffer=""; } offset+=key.length; }
-    else buffer+=item.question[offset++];
-  }
-  if(buffer) plain.push(buffer);
-  for(const text of plain) for(const token of tokenizer.tokenize(text)){
-    const unknown=!token.reading||token.word_type==="UNKNOWN";
-    const alpha=token.surface_form;
-    const handledAcronym=/^[A-Z]{2,}$/.test(alpha)||(/^[A-Za-z]+$/.test(alpha)&&alpha.length<=2);
-    if(unknown&&/[㐀-鿿々〆ヵヶ]/.test(alpha)) unresolved.push(`${item.id}:${alpha}`);
-    if(unknown&&/^[A-Za-z]+$/.test(alpha)&&!handledAcronym) unresolved.push(`${item.id}:${alpha}`);
+  for(const [field,value] of [["question",item.question],["answer",item.answer]]){
+    const plain=[]; let buffer="", offset=0;
+    while(offset<value.length){
+      const key=dictionaryKeys.find(candidate=>value.startsWith(candidate,offset));
+      if(key){ if(buffer){ plain.push(buffer); buffer=""; } offset+=key.length; }
+      else buffer+=value[offset++];
+    }
+    if(buffer) plain.push(buffer);
+    for(const text of plain) for(const token of tokenizer.tokenize(text)){
+      const unknown=!token.reading||token.word_type==="UNKNOWN";
+      const alpha=token.surface_form;
+      const handledAcronym=/^[A-Z]{2,}$/.test(alpha)||(/^[A-Za-z]+$/.test(alpha)&&alpha.length<=2);
+      if(unknown&&/[㐀-鿿々〆ヵヶ]/.test(alpha)) unresolved.push(`${item.id}:${field}:${alpha}`);
+      if(unknown&&/^[A-Za-z]+$/.test(alpha)&&!handledAcronym) unresolved.push(`${item.id}:${field}:${alpha}`);
+    }
   }
 }
 assert.deepEqual(unresolved,[],`未解決の読み: ${unresolved.join(", ")}`);

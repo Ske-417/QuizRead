@@ -3,15 +3,22 @@
 const $ = id => document.getElementById(id);
 const LS = "monyomi.v1";
 async function loadDefaultQuestions() {
-  const response = await fetch("data/questions.json");
-  if (!response.ok) throw new Error(`問題データを読み込めませんでした (${response.status})`);
-  const questions = await response.json();
-  if(!Array.isArray(questions)) throw new Error("問題データの形式が正しくありません");
-  return questions;
+  const sources=[
+    {url:"data/questions.json?v=20261030-1",source:"minhaya"},
+    {url:"data/questions-chatgpt.json?v=20261030-2",source:"chatgpt"}
+  ];
+  const batches=await Promise.all(sources.map(async item=>{
+    const response=await fetch(item.url);
+    if(!response.ok) throw new Error(`問題データを読み込めませんでした (${response.status})`);
+    const questions=await response.json();
+    if(!Array.isArray(questions)) throw new Error("問題データの形式が正しくありません");
+    return questions.map(question=>({...question,source:item.source}));
+  }));
+  return batches.flat();
 }
 async function loadDefaultDictionary() {
   try {
-    const response = await fetch("data/dictionary.json?v=20261029-4");
+    const response = await fetch("data/dictionary.json?v=20261030-2");
     if (!response.ok) return {};
     const dict = await response.json();
     if (!dict || typeof dict !== "object" || Array.isArray(dict)) return {};
@@ -23,15 +30,16 @@ async function loadDefaultDictionary() {
 const SAMPLE = await loadDefaultQuestions();
 const DEFAULT_DICT = await loadDefaultDictionary();
 const DEFAULT_SET = {rate:1.1,pitch:1,vol:1,mode:"kana",lead:true,turn:true,turnPause:320,post:1.03,fall:true,comma:false,paren:true,sound:true,engine:"open-jtalk",voice:""};
-const SAMPLE_VER = 7;
+const SAMPLE_VER = 9;
 const REMOVED_QUESTION_IDS = new Set(["42620"]);
 const sampleQs = () => SAMPLE.map((x,i)=>({
-  id:x.id||"s2_"+i,
+  id:x.source==="chatgpt"?`chatgpt:${x.id||i}`:(x.id||"s2_"+i),
   q:x.question,
   a:x.answer,
   g:x.genre,
   d:x.difficulty||"",
   fix:{},
+  source:x.source||"minhaya",
 }));
 /* 出題範囲：各モードで出す難易度 */
 const LEVELS = {"":{name:"すべての難易度",ds:null}, C:{name:"Cモード",ds:["C"]}, B:{name:"Bモード",ds:["C","B"]}, A:{name:"Aモード",ds:["B","A"]}, S:{name:"Sモード",ds:["A","S"]}};
@@ -43,7 +51,12 @@ try{
   if(raw){ const s = JSON.parse(raw); if(s && Array.isArray(s.questions) && s.questions.length){
     const ver = s.sampleVer||1;
     state = {...state, ...s, set:{...DEFAULT_SET, ...(s.set||{})}};
-    if(ver < SAMPLE_VER){ state.questions=sampleQs(); state.idx=0; state.order=null; state.dict={...DEFAULT_DICT}; state.played={}; state.results={}; }
+    if(ver < 7){ state.questions=sampleQs(); state.idx=0; state.order=null; state.dict={...DEFAULT_DICT}; state.played={}; state.results={}; }
+    else if(ver < SAMPLE_VER){
+      const existing=new Set(state.questions.map(q=>String(q.id)));
+      state.questions.push(...sampleQs().filter(q=>q.source==="chatgpt"&&!existing.has(String(q.id))));
+      state.order=null;
+    }
     if(!(state.level in LEVELS)) state.level="";
     state.sampleVer=SAMPLE_VER;
   } }

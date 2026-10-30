@@ -25,7 +25,13 @@
         if(piece.t!=="txt"){ out.push(piece); continue; }
         let buffer="", offset=0;
         while(offset<piece.s.length){
-          const hit=entries.find(entry=>piece.s.startsWith(entry.surface,offset));
+          const hit=entries.find(entry=>{
+            if(!piece.s.startsWith(entry.surface,offset)) return false;
+            const before=piece.s[offset-1]||"", after=piece.s[offset+entry.surface.length]||"";
+            if(/^[A-Za-z0-9]/.test(entry.surface)&&/[A-Za-z0-9]/.test(before)) return false;
+            if(/[A-Za-z0-9]$/.test(entry.surface)&&/[A-Za-z0-9]/.test(after)) return false;
+            return true;
+          });
           if(hit){
             if(buffer){ out.push({t:"txt",s:buffer}); buffer=""; }
             out.push({t:"fix",s:hit.surface,r:hit.reading,src:hit.src}); offset+=hit.surface.length;

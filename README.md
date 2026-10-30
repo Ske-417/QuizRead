@@ -75,7 +75,8 @@ Open JTalk が見つからない場合は設定画面から「ブラウザ音声
 - `index.html` … 画面のHTML
 - `assets/css/app.css` … 見た目とレイアウト
 - `assets/js/app.js` … 読み上げ・対戦・編集などのアプリ処理
-- `data/questions.json` … 問題データベース（`id`・`question`・`answer`・`genre` の4項目）
+- `data/questions.json` … みんはや由来の問題データ
+- `data/questions-chatgpt.json` … ChatGPTによる自作問題データ（出題時は上記と自動で混合）
 - `dict/` … 読み辞書（kuromoji の IPADIC 辞書）
 - `vendor/` … kuromoji、QRコード、PeerJSなどの外部ライブラリ
 - `scripts/validate-questions.mjs` … 問題データの検証
@@ -84,7 +85,7 @@ Open JTalk が見つからない場合は設定画面から「ブラウザ音声
 
 ### 問題データを編集する
 
-`data/questions.json` の各項目は `id`（固定ID）、`question`（問題文）、`answer`（答え）、`genre`（ジャンル）にします。`id` は重複させないでください。
+各問題JSONの項目は `id`（ファイル内の固定ID）、`question`（問題文）、`answer`（答え）、`genre`（ジャンル）にします。同じファイル内で `id` は重複させないでください。
 
 ジャンルは、みんはやで使われる分類を参考に、次のいずれかを推奨します。公式の固定ジャンル一覧ではないため、必要に応じて追加できます。
 
