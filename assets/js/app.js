@@ -32,7 +32,7 @@ async function loadDefaultDictionary() {
 const SAMPLE = await loadDefaultQuestions();
 const DEFAULT_DICT = await loadDefaultDictionary();
 const DEFAULT_SET = {rate:1.1,pitch:1,vol:1,mode:"kana",lead:true,turn:true,turnPause:320,post:1.03,fall:true,comma:false,paren:true,sound:true,engine:"open-jtalk",voice:""};
-const SAMPLE_VER = 9;
+const SAMPLE_VER = 10;
 const REMOVED_QUESTION_IDS = new Set(["42620"]);
 const sampleQs = () => SAMPLE.map((x,i)=>({
   id:x.source==="chatgpt"?`chatgpt:${x.id||i}`:(x.id||"s2_"+i),
@@ -43,10 +43,8 @@ const sampleQs = () => SAMPLE.map((x,i)=>({
   fix:{},
   source:x.source||"minhaya",
 }));
-/* 出題範囲：各モードで出す難易度 */
-const LEVELS = {"":{name:"すべての難易度",ds:null}, C:{name:"Cモード",ds:["C"]}, B:{name:"Bモード",ds:["C","B"]}, A:{name:"Aモード",ds:["B","A"]}, S:{name:"Sモード",ds:["A","S"]}};
+const builtInQuestionKey = q => `${q.q||q.question||""}\u0000${q.a||q.answer||""}`;
 const normD = v => { const d=String(v||"").trim().toUpperCase(); return /^[CBAS]$/.test(d)?d:""; };
-const inLevel = (q,lv=state.level) => { const L=LEVELS[lv]; return !L || !L.ds || L.ds.includes(q.d||""); };
 let state = {questions:sampleQs(), idx:0, dict:{}, set:{...DEFAULT_SET}, results:{}, sampleVer:SAMPLE_VER, genre:"", level:"", order:null};
 try{
   const raw = localStorage.getItem(LS);
@@ -55,11 +53,18 @@ try{
     state = {...state, ...s, set:{...DEFAULT_SET, ...(s.set||{})}};
     if(ver < 7){ state.questions=sampleQs(); state.idx=0; state.order=null; state.dict={...DEFAULT_DICT}; state.played={}; state.results={}; }
     else if(ver < SAMPLE_VER){
-      const existing=new Set(state.questions.map(q=>String(q.id)));
-      state.questions.push(...sampleQs().filter(q=>q.source==="chatgpt"&&!existing.has(String(q.id))));
+      const existingIds=new Set(state.questions.map(q=>String(q.id)));
+      const existingQuestions=new Set(state.questions.map(q=>builtInQuestionKey(q)));
+      state.questions.push(...sampleQs().filter(q=>{
+        const key=builtInQuestionKey(q);
+        if(existingIds.has(String(q.id)) || existingQuestions.has(key)) return false;
+        existingIds.add(String(q.id));
+        existingQuestions.add(key);
+        return true;
+      }));
       state.order=null;
     }
-    if(!(state.level in LEVELS)) state.level="";
+    state.level="";
     state.sampleVer=SAMPLE_VER;
   } }
 }catch(e){}
@@ -810,7 +815,7 @@ function viewList(useQuery=true){
     const item=state.questions[i];
     const matchesGenre=!state.genre || (item.g||"自作")===state.genre;
     const haystack=`${plainQ(item)} ${item.a||""} ${item.g||""}`.toLocaleLowerCase("ja");
-    return matchesGenre && inLevel(item) && (!query || haystack.includes(query));
+    return matchesGenre && (!query || haystack.includes(query));
   });
   if(state.order){ const set=new Set(ids); const ord=state.order.filter(i=>set.has(i)); if(ord.length===ids.length) ids=ord; }
   return ids;
@@ -999,11 +1004,8 @@ function renderPlan(){
 function plainQ(q){ return normalize(q.q).replace(/《[^》]*》|[｜|]/g,""); }
 function renderList(){
   const ul=$("qlist"); ul.innerHTML="";
-  const ls=$("levelSel"); ls.innerHTML=Object.entries(LEVELS).map(([k,L])=>`<option value="${k}">${L.name}${L.ds?"（"+L.ds.join("・")+"）":""}：${state.questions.filter(q=>inLevel(q,k)).length}問</option>`).join("");
-  ls.value=state.level||"";
-  const inLv=state.questions.filter(q=>inLevel(q));
   const genres=[...new Set(state.questions.map(q=>q.g||"自作"))];
-  const gs=$("genreSel"); gs.innerHTML=`<option value="">すべてのジャンル（${inLv.length}問）</option>`+genres.map(g=>`<option value="${esc(g)}">${esc(g)}（${inLv.filter(q=>(q.g||"自作")===g).length}問）</option>`).join("");
+  const gs=$("genreSel"); gs.innerHTML=`<option value="">すべてのジャンル（${state.questions.length}問）</option>`+genres.map(g=>`<option value="${esc(g)}">${esc(g)}（${state.questions.filter(q=>(q.g||"自作")===g).length}問）</option>`).join("");
   gs.value=state.genre||"";
   $("shuffleBtn").setAttribute("aria-pressed", String(!!state.order));
   $("skipDone").checked=!!state.ui.skipDone;
@@ -1221,7 +1223,6 @@ function applyFilter(){
   go(v.includes(state.idx)?state.idx:v[0]);
 }
 $("genreSel").onchange=()=>{ state.genre=$("genreSel").value; applyFilter(); };
-$("levelSel").onchange=()=>{ state.level=$("levelSel").value; applyFilter(); };
 let searchTimer=0;
 $("qSearch").addEventListener("input",()=>{
   clearTimeout(searchTimer);
